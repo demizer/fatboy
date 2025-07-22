@@ -1,5 +1,7 @@
 # Fatboy
 
+![](assets/screenshot.png)
+
 A personal weight tracking app.
 
 Created after I canceled my $20 a month myfitnesspal subscription and could not extract the historical data going back to 2011 without a premium subscription.
