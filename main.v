@@ -234,9 +234,12 @@ fn main() {
 	// Create the database tables if they don't exist
 	sql db {
 		create table Goal
-		create table WeightLog
+		create table WeightLog  
 		create table Measurement
-	}!
+	} or {
+		eprintln('Failed to create database tables: ${err}')
+		panic(err)
+	}
 
 	mut app := &App{
 		db: db
@@ -462,10 +465,20 @@ pub fn (app &App) save_log(mut ctx Context) veb.Result {
 	weight := weight_str.f64()
 
 	// Handle file upload
-	if file := ctx.files['photo'][0] {
-		// Define a path and save the file
-		image_path = os.join_path('public', 'uploads', file.filename)
-		os.write_file(image_path, file.data) or { return ctx.server_error('Could not save image') }
+	if files := ctx.files['photo'] {
+		if files.len > 0 {
+			file := files[0]
+			// Create uploads directory if it doesn't exist
+			uploads_dir := os.join_path('public', 'uploads')
+			os.mkdir_all(uploads_dir) or {}
+			
+			// Define a path and save the file
+			image_path = os.join_path(uploads_dir, file.filename)
+			os.write_file(image_path, file.data) or { 
+				eprintln('Could not save image: ${err}')
+				return ctx.server_error('Could not save image') 
+			}
+		}
 	}
 
 	// Create weight log struct
@@ -513,22 +526,29 @@ pub fn (app &App) save_log(mut ctx Context) veb.Result {
 
 // API endpoint to provide weight data for the chart
 @['/api/weight-data'; get]
-pub fn (app &App) weight_data(mut ctx Context) !veb.Result {
+pub fn (app &App) weight_data(mut ctx Context) veb.Result {
 	// A 'period' query parameter controls the time frame (e.g., '30d', '90d', 'all')
 	period := ctx.query['period'] or { 'all' }
+	println('API request for period: ${period}')
 
 	// Query using V's ORM - simpler approach
 	mut weight_logs := []WeightLog{}
 
 	if period == 'all' {
 		// Query all data
+		println('Querying all weight logs...')
 		weight_logs = sql app.db {
 			select from WeightLog order by log_date
-		}!
+		} or {
+			eprintln('Database error getting weight logs: ${err}')
+			return ctx.server_error('Failed to fetch weight data')
+		}
+		println('Found ${weight_logs.len} weight logs')
 	} else {
 		// Calculate the date filter based on period
 		days := match period {
 			'7d' { 7 }
+			'14d' { 14 }
 			'30d' { 30 }
 			'90d' { 90 }
 			'180d' { 180 }
@@ -537,11 +557,16 @@ pub fn (app &App) weight_data(mut ctx Context) !veb.Result {
 		}
 
 		cutoff_date := time.now().add_days(-days).custom_format('YYYY-MM-DD')
+		println('Querying weight logs after ${cutoff_date}...')
 
 		// Query with date filter - use string interpolation
 		weight_logs = sql app.db {
 			select from WeightLog where log_date >= cutoff_date order by log_date
-		}!
+		} or {
+			eprintln('Database error getting filtered weight logs: ${err}')
+			return ctx.server_error('Failed to fetch weight data')
+		}
+		println('Found ${weight_logs.len} filtered weight logs')
 	}
 
 	// Convert ORM results to chart data structure
@@ -549,9 +574,46 @@ pub fn (app &App) weight_data(mut ctx Context) !veb.Result {
 		dates:   weight_logs.map(it.log_date)
 		weights: weight_logs.map(it.weight)
 	}
+	println('Returning chart data with ${chart_data.dates.len} points')
 
 	// Return JSON response
 	return ctx.json(chart_data)
+}
+
+// Debug endpoint to check database status
+@['/debug'; get]
+pub fn (app &App) debug_info(mut ctx Context) veb.Result {
+	mut debug_info := map[string]string{}
+	
+	// Check if database file exists
+	debug_info['db_file_exists'] = os.exists('tracker.db').str()
+	
+	// Try to get count of weight logs
+	weight_logs := sql app.db {
+		select from WeightLog
+	} or {
+		debug_info['weight_logs_error'] = err.str()
+		[]WeightLog{}
+	}
+	debug_info['weight_logs_count'] = weight_logs.len.str()
+	
+	// Get a sample of the data if any exists
+	if weight_logs.len > 0 {
+		sample := weight_logs[0]
+		debug_info['sample_date'] = sample.log_date
+		debug_info['sample_weight'] = sample.weight.str()
+	}
+	
+	// Try to get goals
+	goals := sql app.db {
+		select from Goal
+	} or {
+		debug_info['goals_error'] = err.str()
+		[]Goal{}
+	}
+	debug_info['goals_count'] = goals.len.str()
+	
+	return ctx.json(debug_info)
 }
 
 // Home page - displays the main dashboard

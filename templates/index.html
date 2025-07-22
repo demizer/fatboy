@@ -2,6 +2,7 @@
 <html>
 <head>
     <title>Weight Tracker Dashboard</title>
+    <meta charset="UTF-8">
     <style>
         body {
             font-family: Arial, sans-serif;
@@ -40,6 +41,37 @@
         .content {
             padding: 30px;
         }
+        .chart-controls {
+            margin-bottom: 20px;
+            display: flex;
+            gap: 10px;
+            align-items: center;
+        }
+        .chart-controls label {
+            font-weight: bold;
+            margin-right: 10px;
+        }
+        .time-frame-buttons {
+            display: flex;
+            gap: 5px;
+        }
+        .time-frame-btn {
+            padding: 8px 16px;
+            border: 2px solid #0066cc;
+            background: white;
+            color: #0066cc;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: all 0.3s;
+            font-size: 14px;
+        }
+        .time-frame-btn:hover {
+            background: #f0f7ff;
+        }
+        .time-frame-btn.active {
+            background: #0066cc;
+            color: white;
+        }
         .chart-container {
             position: relative;
             height: 400px;
@@ -56,8 +88,9 @@
             margin-bottom: 10px;
         }
         .activity-link {
-            display: flex;
-            justify-content: space-between;
+            display: grid;
+            grid-template-columns: 1fr auto auto;
+            gap: 15px;
             align-items: center;
             padding: 15px;
             background: #f8f9fa;
@@ -71,13 +104,19 @@
         }
         .date {
             font-weight: bold;
+            justify-self: start;
         }
         .weight {
             color: #0066cc;
             font-weight: bold;
+            justify-self: end;
+            text-align: right;
         }
         .image-indicator {
             font-size: 18px;
+            justify-self: center;
+            width: 25px;
+            text-align: center;
         }
     </style>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
@@ -98,6 +137,17 @@
 
         <div class="content">
             <h2>Weight Progress</h2>
+            <div class="chart-controls">
+                <label>Time Frame:</label>
+                <div class="time-frame-buttons">
+                    <button class="time-frame-btn" data-period="7d">1 Week</button>
+                    <button class="time-frame-btn" data-period="14d">2 Weeks</button>
+                    <button class="time-frame-btn" data-period="30d">1 Month</button>
+                    <button class="time-frame-btn" data-period="90d">3 Months</button>
+                    <button class="time-frame-btn" data-period="180d">6 Months</button>
+                    <button class="time-frame-btn active" data-period="all">All Time</button>
+                </div>
+            </div>
             <div class="chart-container">
                 <canvas id="weightChart"></canvas>
             </div>
@@ -110,14 +160,21 @@
     </div>
 
     <script>
+        let currentChart = null;
+
         // Load weight data and create chart
-        async function loadWeightChart() {
+        async function loadWeightChart(period = 'all') {
             try {
-                const response = await fetch('/api/weight-data');
+                const response = await fetch(`/api/weight-data?period=${period}`);
                 const data = await response.json();
 
+                // Destroy existing chart if it exists
+                if (currentChart) {
+                    currentChart.destroy();
+                }
+
                 const ctx = document.getElementById('weightChart').getContext('2d');
-                new Chart(ctx, {
+                currentChart = new Chart(ctx, {
                     type: 'line',
                     data: {
                         labels: data.dates,
@@ -128,24 +185,37 @@
                             backgroundColor: 'rgba(0, 102, 204, 0.1)',
                             borderWidth: 2,
                             fill: true,
-                            tension: 0.4
+                            tension: 0.4,
+                            pointRadius: 4,
+                            pointHoverRadius: 6
                         }]
                     },
                     options: {
                         responsive: true,
                         maintainAspectRatio: false,
+                        interaction: {
+                            intersect: false,
+                            mode: 'index'
+                        },
                         scales: {
                             y: {
                                 beginAtZero: false,
                                 title: {
                                     display: true,
                                     text: 'Weight (lbs)'
+                                },
+                                grid: {
+                                    display: true,
+                                    color: 'rgba(0, 0, 0, 0.1)'
                                 }
                             },
                             x: {
                                 title: {
                                     display: true,
                                     text: 'Date'
+                                },
+                                grid: {
+                                    display: false
                                 }
                             }
                         },
@@ -153,18 +223,48 @@
                             legend: {
                                 display: true,
                                 position: 'top'
+                            },
+                            tooltip: {
+                                backgroundColor: 'rgba(0, 0, 0, 0.8)',
+                                titleColor: 'white',
+                                bodyColor: 'white',
+                                borderColor: '#0066cc',
+                                borderWidth: 1
                             }
                         }
                     }
                 });
             } catch (error) {
                 console.error('Error loading weight data:', error);
-                document.getElementById('weightChart').innerHTML = '<p>Error loading chart data</p>';
+                const chartContainer = document.querySelector('.chart-container');
+                chartContainer.innerHTML = '<div style="display: flex; justify-content: center; align-items: center; height: 100%; color: #666;">Error loading chart data. Please try again.</div>';
             }
         }
 
+        // Handle time frame button clicks
+        function setupTimeFrameButtons() {
+            const buttons = document.querySelectorAll('.time-frame-btn');
+
+            buttons.forEach(button => {
+                button.addEventListener('click', () => {
+                    // Remove active class from all buttons
+                    buttons.forEach(btn => btn.classList.remove('active'));
+
+                    // Add active class to clicked button
+                    button.classList.add('active');
+
+                    // Load chart with selected period
+                    const period = button.getAttribute('data-period');
+                    loadWeightChart(period);
+                });
+            });
+        }
+
         // Load chart when page loads
-        document.addEventListener('DOMContentLoaded', loadWeightChart);
+        document.addEventListener('DOMContentLoaded', () => {
+            loadWeightChart('all');
+            setupTimeFrameButtons();
+        });
     </script>
 </body>
 </html>
