@@ -23,3 +23,5 @@ bin/
 *.db
 *.js
 public/uploads
+.nvim
+data/myfitnesspal
