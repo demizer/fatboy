@@ -23,3 +23,14 @@ set -gx ANTHROPIC_API_KEY "foo"
 nvim -u nvim.lua
 ```
 
+## How to run
+
+### Locally
+
+```fish
+v . && ./fatboy
+```
+
+### systemd
+
+Coming soon!
