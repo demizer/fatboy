@@ -1,8 +1,8 @@
 # Fatboy
 
-![](assets/screenshot.png)
+A personal weight tracking app that was 100% vibe coded in a couple of hours.
 
-A personal weight tracking app.
+![](assets/screenshot.png)
 
 Created after I canceled my $20 a month myfitnesspal subscription and could not extract the historical data going back to 2011 without a premium subscription.
 
