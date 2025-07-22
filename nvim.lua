@@ -274,8 +274,6 @@ local keymaps_spec = {
     { "<leader>ci", "<cmd>lua vim.lsp.buf.implementation()<CR>", desc = "lsp implementation", mode = { "n", "v" } },
     { "<leader>ct", "<cmd>lua vim.lsp.buf.type_definition()<CR>", desc = "lsp type definition", mode = { "n", "v" } },
 
-
-
     --
     -- File & Find
     --
@@ -362,7 +360,7 @@ local keymaps_spec = {
     { "<leader>xh", "<cmd>lua vim.lsp.buf.hover()<CR>", desc = "lsp hover", mode = { "n", "v" } },
     { "[", group = "Prev", desc = "Previous", icon = { icon = "󰁍", color = "magenta" }, mode = { "n", "v" } },
     { "<leader>[e", "<cmd>silent lua vim.lsp.diagnostic.goto_prev()<cr>", desc = "lsp error", mode = { "n", "v" } },
-    { "<leader>[q", "<cmd>cprevious<cr>", desc = "quickfix item", mode = { "n", "v" }, mode = { "n", "v" } },
+    { "<leader>[q", "<cmd>cprevious<cr>", desc = "quickfix item", mode = { "n", "v" }},
     {
         "<leader>[t",
         "<cmd>lua require('trouble').previous({skip_groups = true, jump = true})<cr>",
@@ -588,10 +586,64 @@ local plugins = {
         cmd = "Trouble",
     },
     {
+        "mason-org/mason.nvim",
+        dependencies = {
+            -- { "mason-org/mason-lspconfig.nvim" },
+            { "mfussenegger/nvim-lint" },
+        },
+        cmd = "Mason",
+        build = ":MasonUpdate",
+        opts_extend = { "ensure_installed" },
+        opts = {
+            ensure_installed = {
+                "stylua",
+                "shfmt",
+                "pyright",
+                "json-lsp",
+                "lua-language-server",
+                "taplo",
+            },
+        },
+        config = function(_, opts)
+            require("mason").setup(opts)
+            local mr = require("mason-registry")
+            mr:on("package:install:success", function()
+                vim.defer_fn(function()
+                    -- trigger FileType event to possibly load this newly installed LSP server
+                    require("lazy.core.handler.event").trigger({
+                        event = "FileType",
+                        buf = vim.api.nvim_get_current_buf(),
+                    })
+                end, 100)
+            end)
+
+            mr.refresh(function()
+                for _, tool in ipairs(opts.ensure_installed) do
+                    local p = mr.get_package(tool)
+                    if not p:is_installed() then
+                        p:install()
+                    end
+                end
+            end)
+        end,
+    },
+    {
         "neovim/nvim-lspconfig",
         lazy = false,
         config = function()
             vim.lsp.enable("v_analyzer")
+        end,
+    },
+    {
+        "mason-org/mason-lspconfig.nvim",
+        -- lazy = false,
+        -- opts = {},
+        dependencies = {
+            { "mason-org/mason.nvim" },
+            "neovim/nvim-lspconfig",
+        },
+        config = function(_, opts)
+            require("mason-lspconfig").setup(opts)
         end,
     },
     {
@@ -612,7 +664,15 @@ local plugins = {
                     },
                     cmdline = { sources = { "cmdline" } },
                     sources = {
-                        default = { "lsp", "path", "snippets", "buffer", "codecompanion" },
+                        default = { "lazydev", "lsp", "path", "snippets", "buffer", "codecompanion" },
+                        providers = {
+                            lazydev = {
+                                name = "LazyDev",
+                                module = "lazydev.integrations.blink",
+                                -- make lazydev completions top priority (see `:h blink.cmp`)
+                                score_offset = 100,
+                            },
+                        },
                     },
                 },
             },
@@ -679,7 +739,53 @@ local plugins = {
             },
         },
     },
+    {
+        "mhartington/formatter.nvim",
+        dependencies = {
+            { "mason-org/mason.nvim" },
+            "neovim/nvim-lspconfig",
+        },
+        opts = function()
+            vim.api.nvim_create_user_command("ToggleLspFormatter", function()
+                local exists, _ = pcall(vim.api.nvim_get_autocmds, { group = "LspFormatting" })
+                if not exists then
+                    -- install_lsp_formatter_group()
+                    print("LSP Formatter enabled")
+                    return
+                end
+                vim.api.nvim_del_augroup_by_name("LspFormatting")
+                print("LSP Formatter Disabled")
+            end, {})
 
+            return {
+                -- Enable or disable logging
+                logging = true,
+                -- Set the log level
+                log_level = vim.log.levels.WARN,
+                -- All formatter configurations are opt-in
+                -- https://github.com/mhartington/formatter.nvim/tree/master/lua/formatter/filetypes
+                filetype = {
+                    lua = { require("formatter.filetypes.lua").stylua },
+                    python = { require("formatter.filetypes.python").ruff },
+                    toml = { require("formatter.filetypes.toml").taplo },
+                    json = { require("formatter.filetypes.json").jq },
+                    markdown = { require("formatter.filetypes.markdown").prettier },
+                },
+            }
+        end,
+
+    },
+    {
+        "folke/lazydev.nvim",
+        ft = "lua", -- only load on lua files
+        opts = {
+            library = {
+                -- See the configuration section for more details
+                -- Load luvit types when the `vim.uv` word is found
+                { path = "${3rd}/luv/library", words = { "vim%.uv" } },
+            },
+        },
+    },
 }
 
 require("lazy.minit").repro({ spec = plugins })
