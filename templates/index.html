@@ -118,6 +118,55 @@
             width: 25px;
             text-align: center;
         }
+        .goal-section {
+            background: #f8f9fa;
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 30px;
+            border-left: 4px solid #0066cc;
+        }
+        .goal-section h3 {
+            margin: 0 0 15px 0;
+            color: #0066cc;
+            font-size: 18px;
+        }
+        .goal-info {
+            display: grid;
+            gap: 10px;
+            margin-bottom: 15px;
+        }
+        .goal-weight {
+            font-size: 16px;
+            color: #333;
+        }
+        .goal-date {
+            color: #666;
+            font-size: 14px;
+        }
+        .goal-status {
+            font-weight: bold;
+            font-size: 14px;
+        }
+        .goal-status.goal-active {
+            color: #28a745;
+        }
+        .goal-status.goal-overdue {
+            color: #dc3545;
+        }
+        .goal-edit-link {
+            display: inline-block;
+            color: #0066cc;
+            text-decoration: none;
+            font-size: 14px;
+            border: 1px solid #0066cc;
+            padding: 5px 15px;
+            border-radius: 4px;
+            transition: all 0.3s;
+        }
+        .goal-edit-link:hover {
+            background: #0066cc;
+            color: white;
+        }
     </style>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
@@ -137,6 +186,8 @@
 
         <div class="content">
             <h2>Weight Progress</h2>
+            {{CURRENT_GOAL}}
+
             <div class="chart-controls">
                 <label>Time Frame:</label>
                 <div class="time-frame-buttons">

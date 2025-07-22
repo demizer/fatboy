@@ -234,7 +234,7 @@ fn main() {
 	// Create the database tables if they don't exist
 	sql db {
 		create table Goal
-		create table WeightLog  
+		create table WeightLog
 		create table Measurement
 	} or {
 		eprintln('Failed to create database tables: ${err}')
@@ -281,8 +281,41 @@ pub struct Measurement {
 // Displays the form to set a weight goal
 @['/goal'; get]
 pub fn (app &App) goal_form(mut ctx Context) veb.Result {
-	// This could return an HTML template
-	return ctx.html('<h1>Set Your Goal</h1><form action="/goal" method="post">...</form>')
+	// Get current goal if exists
+	current_goals := sql app.db {
+		select from Goal order by id desc limit 1
+	} or { []Goal{} }
+
+	// Load template
+	template_path := os.join_path('templates', 'goal.html')
+	template_content := os.read_file(template_path) or {
+		return ctx.server_error('Could not load template')
+	}
+
+	mut html := template_content
+
+	// Replace current goal section
+	if current_goals.len > 0 {
+		goal := current_goals[0]
+		goal_html := '
+		<div class="current-goal">
+			<h3>Current Goal</h3>
+			<p><strong>Goal Weight:</strong> ${goal.goal_weight} lbs</p>
+			<p><strong>Target Date:</strong> ${goal.target_date}</p>
+		</div>'
+		html = html.replace('{{CURRENT_GOAL}}', goal_html)
+		html = html.replace('{{BUTTON_TEXT}}', 'Update Goal')
+		html = html.replace('{{GOAL_WEIGHT_VALUE}}', goal.goal_weight.str())
+		html = html.replace('{{TARGET_DATE_VALUE}}', goal.target_date)
+	} else {
+		html = html.replace('{{CURRENT_GOAL}}', '')
+		html = html.replace('{{BUTTON_TEXT}}', 'Set Goal')
+		html = html.replace('{{GOAL_WEIGHT_VALUE}}', '')
+		html = html.replace('{{TARGET_DATE_VALUE}}', '')
+	}
+
+	return ctx.html(html)
+
 }
 
 // Processes the submitted goal form
@@ -297,17 +330,27 @@ pub fn (app &App) set_goal(mut ctx Context) veb.Result {
 	// 2. Convert string weight to f64 for the struct, with error handling
 	goal_weight := goal_weight_str.f64()
 
-	// 3. Create an instance of the Goal struct
-	new_goal := Goal{
-		goal_weight: goal_weight
-		target_date: target_date
-		// The `id` field is omitted, as the database will generate it automatically.
-	}
+	// 3. Check if a goal already exists
+	existing_goals := sql app.db {
+		select from Goal order by id desc limit 1
+	} or { []Goal{} }
 
-	// 4. Use the ORM's `insert` method instead of raw SQL
-	sql app.db {
-		insert new_goal into Goal
-	} or { return ctx.server_error('Failed to save goal') }
+	if existing_goals.len > 0 {
+		// Update existing goal
+		existing_goal := existing_goals[0]
+		sql app.db {
+			update Goal set goal_weight = goal_weight, target_date = target_date where id == existing_goal.id
+		} or { return ctx.server_error('Failed to update goal') }
+	} else {
+		// Create new goal
+		new_goal := Goal{
+			goal_weight: goal_weight
+			target_date: target_date
+		}
+		sql app.db {
+			insert new_goal into Goal
+		} or { return ctx.server_error('Failed to save goal') }
+	}
 
 	return ctx.redirect('/', typ: .see_other)
 }
@@ -471,12 +514,12 @@ pub fn (app &App) save_log(mut ctx Context) veb.Result {
 			// Create uploads directory if it doesn't exist
 			uploads_dir := os.join_path('public', 'uploads')
 			os.mkdir_all(uploads_dir) or {}
-			
+
 			// Define a path and save the file
 			image_path = os.join_path(uploads_dir, file.filename)
-			os.write_file(image_path, file.data) or { 
+			os.write_file(image_path, file.data) or {
 				eprintln('Could not save image: ${err}')
-				return ctx.server_error('Could not save image') 
+				return ctx.server_error('Could not save image')
 			}
 		}
 	}
@@ -584,10 +627,10 @@ pub fn (app &App) weight_data(mut ctx Context) veb.Result {
 @['/debug'; get]
 pub fn (app &App) debug_info(mut ctx Context) veb.Result {
 	mut debug_info := map[string]string{}
-	
+
 	// Check if database file exists
 	debug_info['db_file_exists'] = os.exists('tracker.db').str()
-	
+
 	// Try to get count of weight logs
 	weight_logs := sql app.db {
 		select from WeightLog
@@ -596,14 +639,14 @@ pub fn (app &App) debug_info(mut ctx Context) veb.Result {
 		[]WeightLog{}
 	}
 	debug_info['weight_logs_count'] = weight_logs.len.str()
-	
+
 	// Get a sample of the data if any exists
 	if weight_logs.len > 0 {
 		sample := weight_logs[0]
 		debug_info['sample_date'] = sample.log_date
 		debug_info['sample_weight'] = sample.weight.str()
 	}
-	
+
 	// Try to get goals
 	goals := sql app.db {
 		select from Goal
@@ -612,7 +655,7 @@ pub fn (app &App) debug_info(mut ctx Context) veb.Result {
 		[]Goal{}
 	}
 	debug_info['goals_count'] = goals.len.str()
-	
+
 	return ctx.json(debug_info)
 }
 
@@ -626,6 +669,11 @@ pub fn (app &App) index(mut ctx Context) veb.Result {
 		[]WeightLog{} // Return empty array on error
 	}
 
+	// Fetch current goal
+	current_goals := sql app.db {
+		select from Goal order by id desc limit 1
+	} or { []Goal{} }
+
 	// Load and render template
 	template_path := os.join_path('templates', 'index.html')
 	template_content := os.read_file(template_path) or {
@@ -635,6 +683,7 @@ pub fn (app &App) index(mut ctx Context) veb.Result {
 	// Simple template variable replacement
 	mut html := template_content
 	html = html.replace('{{RECENT_ACTIVITIES}}', generate_recent_activities_html(recent_logs))
+	html = html.replace('{{CURRENT_GOAL}}', generate_goal_html(current_goals, recent_logs))
 
 	return ctx.html(html)
 }
@@ -647,7 +696,7 @@ fn generate_recent_activities_html(logs []WeightLog) string {
 
 	mut activities_html := '<ul class="activity-list">'
 	for log in logs {
-		image_indicator := if log.image_path != '' { '📷' } else { '' }
+		image_indicator := if log.image_path != '' { '📷' } else { '&nbsp;' }
 		activities_html += '
             <li class="activity-item">
                 <a href="/log/${log.id}" class="activity-link">
@@ -661,6 +710,45 @@ fn generate_recent_activities_html(logs []WeightLog) string {
 
 	return activities_html
 }
+
+// Helper function to generate goal HTML for dashboard
+fn generate_goal_html(goals []Goal, recent_logs []WeightLog) string {
+	if goals.len == 0 {
+		return '<div class="goal-section"><h3>No Goal Set</h3><p>Set a weight goal to track your progress!</p><a href="/goal" class="goal-edit-link">Set Your Goal</a></div>'
+	}
+
+	goal := goals[0]
+
+	// Calculate progress if we have recent weight data
+	mut progress_html := ''
+	if recent_logs.len > 0 {
+		current_weight := recent_logs[0].weight
+		weight_diff := current_weight - goal.goal_weight
+
+		if weight_diff > 0 {
+			progress_html = '<p class="goal-status goal-active">Current: ' + current_weight.str() + ' lbs (' + weight_diff.str() + ' lbs to go)</p>'
+		} else if weight_diff == 0 {
+			progress_html = '<p class="goal-status goal-active">🎉 Goal Achieved! Current: ' + current_weight.str() + ' lbs</p>'
+		} else {
+			abs_diff := if weight_diff < 0 { -weight_diff } else { weight_diff }
+			progress_html = '<p class="goal-status goal-active">🎉 Goal Exceeded! Current: ' + current_weight.str() + ' lbs (' + abs_diff.str() + ' lbs below goal)</p>'
+		}
+	}
+
+	// Check if goal date has passed
+	mut date_status := ''
+	today := time.now().custom_format('YYYY-MM-DD')
+	if goal.target_date < today {
+		date_status = '<p class="goal-status goal-overdue">Target date passed</p>'
+	} else {
+		date_status = '<p class="goal-date">Target: ' + goal.target_date + '</p>'
+	}
+
+	return '<div class="goal-section"><h3>Current Goal</h3><div class="goal-info"><p class="goal-weight"><strong>Goal Weight:</strong> ' +
+	       goal.goal_weight.str() + ' lbs</p>' + date_status + progress_html +
+	       '</div><a href="/goal" class="goal-edit-link">Edit Goal</a></div>'
+}
+
 
 // Detail view for individual weight log entries
 @['/log/:id'; get]
